@@ -174,7 +174,8 @@ LocalPlayer::LocalPlayer(const int id, const uint16_t subtype) :
     mPathSetByMouse(false),
     mWaitPing(false),
     mShowNavigePath(false),
-    mAllowRename(false)
+    mAllowRename(false),
+    mXpToNextLevel(0)
 {
     logger->log1("LocalPlayer::LocalPlayer");
 
@@ -207,6 +208,8 @@ LocalPlayer::LocalPlayer(const int id, const uint16_t subtype) :
     config.addListener("targetOnlyReachable", this);
     config.addListener("showserverpos", this);
     setShowName(config.getBoolValue("showownname"));
+    
+    mXpToNextLevel = PlayerInfo::getAttribute(Attributes::EXP_NEEDED) - PlayerInfo::getAttribute(Attributes::EXP);
 }
 
 LocalPlayer::~LocalPlayer()
@@ -1135,26 +1138,59 @@ void LocalPlayer::attributeChanged(const int id,
                                    const int oldVal,
                                    const int newVal)
 {
+void LocalPlayer::attributeChanged(const int id,
+                                   const int oldVal,
+                                   const int newVal)
+{
     switch (id)
     {
         case Attributes::EXP:
         {
-            if (serverFeatures->haveExpPacket())
-                break;
+            
+            int change = 0;
             if (oldVal > newVal)
-                break;
-
-            const int change = newVal - oldVal;
-            addXpMessage(change);
+            {
+                if (mXpToNextLevel > 0)
+                {
+                	change = mXpToNextLevel + newVal;
+                }
+                else
+                {
+                	break;
+                }
+            }
+            else
+            {
+            	change = newVal - oldVal;
+            }
+ 
+            if (change != 0)
+            {
+                // TRANSLATORS: get xp message
+                addMessageToQueue(strprintf("%d %s", change, _("xp")));
+            }
+            mXpToNextLevel = PlayerInfo::getAttribute(Attributes::EXP_NEEDED) - newVal;
             break;
         }
         case Attributes::LEVEL:
             mLevel = newVal;
+            addMessageToQueue(strprintf("%s %d", _("Level"), newVal));
             break;
         case Attributes::HP:
             if (oldVal != 0 && newVal == 0)
                 PlayerDeathListener::distributeEvent();
             break;
+        case Attributes::TOTAL_WEIGHT:
+        {
+            // If player exceeds half weight show Encumbered message.
+            const int max = PlayerInfo::getAttribute(Attributes::MAX_WEIGHT) / 2;
+            const int total = oldVal;
+            if (newVal >= max && total < max)
+            {
+                addMessageToQueue(gettext(N_("Encumbered")), UserPalette::PICKUP_INFO);
+            }
+            break;
+        }
         default:
             break;
     }
